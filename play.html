@@ -372,8 +372,10 @@ function goFullscreenLandscape() {
     } catch (e) {}
 }
 
+// fullscreen on the finger LIFT, not the press: going fullscreen in the
+// middle of a press can lose that finger's "lifted" message in the game
 var triedFullscreen = false;
-window.addEventListener('pointerdown', function () {
+window.addEventListener('pointerup', function () {
     if (!touchUI || triedFullscreen || loadState !== 'playing') return;
     triedFullscreen = true;
     goFullscreenLandscape();
@@ -398,7 +400,15 @@ function checkRotate() {
 }
 
 // tapping the rotate screen tries fullscreen + landscape again (Android)
-rotateBox.addEventListener('pointerdown', function () { goFullscreenLandscape(); });
+rotateBox.addEventListener('pointerup', function () { goFullscreenLandscape(); });
+
+// two or more fingers: stop the browser from zooming / scrolling / swiping
+// back, so pressing several game buttons at once can't steal the touches
+['touchstart', 'touchmove', 'touchend'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+    }, {passive: false});
+});
 
 // pixel phone, w x h, outline at (x, y)
 function drawPhone(x, y, w, h) {
