@@ -377,6 +377,9 @@ function goFullscreenLandscape() {
 var triedFullscreen = false;
 window.addEventListener('pointerup', function () {
     if (!touchUI || triedFullscreen || loadState !== 'playing') return;
+    // phone still upright ("rotate your phone" showing): do nothing - forcing
+    // landscape now would flip the page mid-turn and size the game wrong
+    if (isPortraitPhone()) return;
     triedFullscreen = true;
     goFullscreenLandscape();
 }, true);
@@ -399,8 +402,21 @@ function checkRotate() {
     rc.style.height = (RH * s) + 'px';
 }
 
-// tapping the rotate screen tries fullscreen + landscape again (Android)
-rotateBox.addEventListener('pointerup', function () { goFullscreenLandscape(); });
+// taps on the rotate screen do nothing: only turning the phone hides it
+
+// after a turn or a fullscreen change the browser reports the new size in
+// steps, so measure again a few times until it has settled
+function refitSoon() {
+    [0, 150, 400, 800].forEach(function (ms) {
+        setTimeout(function () { fitCanvas(); checkRotate(); }, ms);
+    });
+}
+window.addEventListener('orientationchange', refitSoon);
+document.addEventListener('fullscreenchange', refitSoon);
+document.addEventListener('webkitfullscreenchange', refitSoon);
+if (screen.orientation && screen.orientation.addEventListener) {
+    screen.orientation.addEventListener('change', refitSoon);
+}
 
 // two or more fingers: stop the browser from zooming / scrolling / swiping
 // back, so pressing several game buttons at once can't steal the touches
