@@ -1,0 +1,19 @@
+{
+  "name": "Inflate",
+  "short_name": "Inflate",
+  "description": "A pixel-art bouncing ball platformer where air is your life.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1a1c2c",
+  "theme_color": "#1a1c2c",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
