@@ -1,0 +1,261 @@
+<!doctype html>
+<!--
+    INFLATE - welcome page (master copy: bouncy_tales/web/index.html)
+
+    The first page testers see. Nothing heavy loads here; the button opens
+    play.html, which loads and starts the game.
+    build_web.bat copies this file and play.html into game/ after each build.
+
+    Everything is drawn as pixel art on small canvases, scaled up by a whole
+    number so it stays crisp on any screen.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1c2c">
+<title>Inflate - Demo</title>
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #1a1c2c;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+    body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+        overflow: hidden;
+    }
+    canvas {
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+    }
+    #playLink {
+        display: block;
+        margin-top: 8px;
+        outline: none;
+        line-height: 0;
+    }
+    /* screen readers / no-canvas fallback text */
+    .sr {
+        position: absolute;
+        width: 1px; height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+</style>
+</head>
+<body>
+<h1 class="sr">Welcome to the demo testing of Inflate</h1>
+<canvas id="welcome" width="240" height="120" aria-hidden="true"></canvas>
+<a id="playLink" href="play.html">
+    <span class="sr">Click here to play</span>
+    <canvas id="button" width="124" height="20" aria-hidden="true"></canvas>
+</a>
+
+<script>
+var PAL = {
+    K: '#1a1c2c', D: '#333c57', d: '#566c86', g: '#94b0c2', W: '#f4f4f4',
+    r: '#7a2440', R: '#c83c48', O: '#ef7d57', Y: '#ffcd75', C: '#73eff7'
+};
+
+// 5 x 7 pixel font
+var FONT = {
+    A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+    B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+    C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+    D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+    E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+    F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+    G: ['.###.', '#...#', '#....', '#.###', '#...#', '#...#', '.###.'],
+    H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+    I: ['###', '.#.', '.#.', '.#.', '.#.', '.#.', '###'],
+    J: ['..###', '...#.', '...#.', '...#.', '...#.', '#..#.', '.##..'],
+    K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+    L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+    M: ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
+    N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+    O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+    Q: ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
+    R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+    S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+    T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+    U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+    W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
+    X: ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+    Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+    Z: ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+    '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+    '1': ['.#.', '##.', '.#.', '.#.', '.#.', '.#.', '###'],
+    '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+    '3': ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+    '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+    '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+    '6': ['.###.', '#....', '#....', '####.', '#...#', '#...#', '.###.'],
+    '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+    '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+    '9': ['.###.', '#...#', '#...#', '.####', '....#', '....#', '.###.'],
+    ':': ['.', '.', '#', '.', '.', '#', '.'],
+    ',': ['..', '..', '..', '..', '..', '.#', '#.'],
+    '.': ['.', '.', '.', '.', '.', '.', '#'],
+    '-': ['...', '...', '...', '###', '...', '...', '...'],
+    '/': ['....#', '....#', '...#.', '..#..', '.#...', '#....', '#....'],
+    '!': ['#', '#', '#', '#', '#', '.', '#']
+};
+
+function textWidth(text, size) {
+    var w = 0;
+    for (var i = 0; i < text.length; i++) {
+        var g = FONT[text[i]];
+        w += (g ? g[0].length : 3) + 1;
+    }
+    return (w - 1) * size;
+}
+
+function drawGlyphs(ctx, text, x, y, size, color) {
+    ctx.fillStyle = color;
+    for (var i = 0; i < text.length; i++) {
+        var g = FONT[text[i]];
+        if (!g) { x += 4 * size; continue; }           // space
+        for (var r = 0; r < g.length; r++)
+            for (var c = 0; c < g[r].length; c++)
+                if (g[r][c] === '#') ctx.fillRect(x + c * size, y + r * size, size, size);
+        x += (g[0].length + 1) * size;
+    }
+}
+
+// centred text, optional 1px outline and drop shadow (like the game's font)
+function drawText(ctx, text, y, size, color, outline, shadow) {
+    var x = Math.floor((ctx.canvas.width - textWidth(text, size)) / 2);
+    if (shadow) drawGlyphs(ctx, text, x, y + size, size, shadow);
+    if (outline)
+        for (var dy = -1; dy <= 1; dy++)
+            for (var dx = -1; dx <= 1; dx++)
+                if (dx || dy) drawGlyphs(ctx, text, x + dx, y + dy, size, outline);
+    drawGlyphs(ctx, text, x, y, size, color);
+}
+
+// the ball, shaded like the game's ball sprite
+function ballPixels(w, h) {
+    var px = [], cx = w / 2, cy = h / 2;
+    function inside(x, y) {
+        if (x < 0 || y < 0 || x >= w || y >= h) return false;
+        var nx = (x + 0.5 - cx) / cx, ny = (y + 0.5 - cy) / cy;
+        return nx * nx + ny * ny <= 1;
+    }
+    for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+            if (!inside(x, y)) continue;
+            var c;
+            if (!(inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1))) c = 'K';
+            else {
+                var nx = (x + 0.5 - cx) / cx, ny = (y + 0.5 - cy) / cy;
+                var light = -(nx * 0.55 + ny * 0.85);
+                c = light > 0.45 ? 'O' : (light < -0.3 ? 'r' : 'R');
+            }
+            px.push([x, y, c]);
+        }
+    }
+    var sx = Math.floor(cx - cx * 0.45), sy = Math.floor(cy - cy * 0.5);
+    px.push([sx, sy, 'W'], [sx + 1, sy, 'W'], [sx, sy + 1, 'W']);
+    return px;
+}
+var BALL = { round: ballPixels(14, 14), squash: ballPixels(16, 12), stretch: ballPixels(12, 16) };
+
+function drawBall(ctx, px, w, h, cx, bottom) {
+    var x0 = Math.round(cx - w / 2), y0 = Math.round(bottom - h);
+    for (var i = 0; i < px.length; i++) {
+        ctx.fillStyle = PAL[px[i][2]];
+        ctx.fillRect(x0 + px[i][0], y0 + px[i][1], 1, 1);
+    }
+}
+
+var touchUI = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+var welcome = document.getElementById('welcome');
+var wx = welcome.getContext('2d');
+var button = document.getElementById('button');
+var bx = button.getContext('2d');
+var link = document.getElementById('playLink');
+var hover = false;
+var start = performance.now();
+
+// scale both canvases by the same whole number so they fit the screen
+function fit() {
+    var w = window.innerWidth * 0.95;
+    var h = window.innerHeight * 0.9;
+    var s = Math.max(1, Math.floor(Math.min(w / welcome.width, h / (welcome.height + button.height + 6))));
+    welcome.style.width = welcome.width * s + 'px';
+    welcome.style.height = welcome.height * s + 'px';
+    button.style.width = button.width * s + 'px';
+    button.style.height = button.height * s + 'px';
+    link.style.marginTop = (4 * s) + 'px';
+}
+window.addEventListener('resize', fit);
+fit();
+
+function drawButton() {
+    var W = button.width, H = button.height;
+    bx.clearRect(0, 0, W, H);
+    // pixel button: dark outline with cut corners, yellow face, lighter top, darker bottom
+    bx.fillStyle = PAL.K;
+    bx.fillRect(1, 0, W - 2, H);
+    bx.fillRect(0, 1, W, H - 2);
+    bx.fillStyle = hover ? PAL.W : PAL.Y;
+    bx.fillRect(1, 1, W - 2, H - 3);
+    bx.fillStyle = hover ? PAL.Y : PAL.O;
+    bx.fillRect(1, H - 3, W - 2, 2);
+    bx.fillStyle = PAL.W;
+    bx.fillRect(2, 1, W - 4, 1);
+    drawText(bx, touchUI ? 'TAP HERE TO PLAY' : 'CLICK HERE TO PLAY', 6, 1, PAL.K);
+}
+link.addEventListener('mouseenter', function () { hover = true; drawButton(); });
+link.addEventListener('mouseleave', function () { hover = false; drawButton(); });
+link.addEventListener('focus', function () { hover = true; drawButton(); });
+link.addEventListener('blur', function () { hover = false; drawButton(); });
+// Enter / Space also start
+window.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.location.href = 'play.html'; }
+});
+drawButton();
+
+function frame(now) {
+    var t = (now - start) / 1000;
+    var W = welcome.width;
+    wx.fillStyle = PAL.K;
+    wx.fillRect(0, 0, W, welcome.height);
+
+    drawText(wx, 'WELCOME TO THE DEMO TESTING OF', 4, 1, PAL.g);
+    drawText(wx, 'INFLATE', 16, 3, PAL.Y, PAL.K, PAL.r);
+
+    // bouncing ball with squash and stretch
+    var ground = 76;
+    wx.fillStyle = PAL.D;
+    wx.fillRect(96, ground, 48, 1);
+    var phase = (t * 1.6) % 1;
+    var height = 4 * phase * (1 - phase);
+    var bottom = ground - Math.round(height * 20);     // stays clear of the logo
+    if (height < 0.12) drawBall(wx, BALL.squash, 16, 12, 120, ground);
+    else if (height < 0.6) drawBall(wx, BALL.stretch, 12, 16, 120, bottom);
+    else drawBall(wx, BALL.round, 14, 14, 120, bottom);
+
+    drawText(wx, 'DEMO VERSION - 8 LEVELS', 83, 1, PAL.W);
+    drawText(wx, 'PC: ARROWS ROLL, SPACE JUMP, Q/E SIZE', 97, 1, PAL.g);
+    drawText(wx, 'PHONE: TOUCH BUTTONS ON SCREEN', 108, 1, PAL.g);
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

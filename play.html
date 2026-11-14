@@ -1,0 +1,400 @@
+<!doctype html>
+<!--
+    INFLATE - game page (master copy: bouncy_tales/web/play.html)
+
+    love.js overwrites game/index.html on every build, so build_web.bat copies
+    this file (and the welcome page index.html) into game/ afterwards.
+    Edit THESE files, not the copies in game/. The welcome page links here.
+
+    - the game canvas fills the whole browser window (phones, tablets, PC);
+      the game itself handles the layout (see src/Screen.lua)
+    - pixel-art loading screen in the game's palette, with a real progress bar
+    - the game starts by itself when loading is done. Browsers only allow
+      sound (and fullscreen on phones) after a touch on this page, so both
+      switch on at the first touch / click / key press in the game
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1c2c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Inflate">
+<title>Inflate</title>
+<style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #1a1c2c;
+        /* no scrolling, zooming, pull-to-refresh, text selection or long-press menus */
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    /* the game. Its CSS size = the window; the engine reads it and makes the
+       real canvas match (times the screen's pixel density). No border/padding,
+       or mouse and touch positions would be off. */
+    #canvas {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        outline: none;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+    }
+    /* loading screen, above the game until the player taps */
+    #loader {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1a1c2c;
+        cursor: default;
+    }
+    #loader.ready { cursor: pointer; }
+    #loader.hidden { display: none; }
+    #loaderCanvas {
+        display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+    }
+</style>
+</head>
+<body>
+<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<div id="loader"><canvas id="loaderCanvas" width="160" height="90"></canvas></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// 1. SOUND: remember every AudioContext the engine makes, so the first tap
+//    can switch them on (browsers start them muted until the user interacts)
+// ---------------------------------------------------------------------------
+(function () {
+    var Base = window.AudioContext || window.webkitAudioContext;
+    var contexts = [];
+    if (Base) {
+        var Tracked = class extends Base {
+            constructor(opts) { super(opts); contexts.push(this); }
+        };
+        window.AudioContext = Tracked;
+        if (window.webkitAudioContext) window.webkitAudioContext = Tracked;
+    }
+    window.resumeAudio = function () {
+        for (var i = 0; i < contexts.length; i++) {
+            if (contexts[i].state !== 'running') contexts[i].resume();
+        }
+    };
+    // backup: any later touch / click / key also wakes the sound
+    ['pointerdown', 'touchend', 'keydown'].forEach(function (ev) {
+        window.addEventListener(ev, window.resumeAudio, true);
+    });
+})();
+
+// ---------------------------------------------------------------------------
+// 2. SIZE: keep the game canvas exactly the size of the visible window.
+//    Uses innerWidth/innerHeight so phone browser bars are handled.
+// ---------------------------------------------------------------------------
+var gameCanvas = document.getElementById('canvas');
+function fitCanvas() {
+    gameCanvas.style.width = window.innerWidth + 'px';
+    gameCanvas.style.height = window.innerHeight + 'px';
+    fitLoader();
+}
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', function () { setTimeout(fitCanvas, 200); });
+if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
+
+// stop the page scrolling with space / arrow keys
+window.addEventListener('keydown', function (e) {
+    if ([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) e.preventDefault();
+}, false);
+// no pinch-zoom on iPhone
+document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+
+// ---------------------------------------------------------------------------
+// 3. LOADING SCREEN (pixel art, 160 x 90, scaled up by a whole number)
+// ---------------------------------------------------------------------------
+var PAL = {
+    K: '#1a1c2c', D: '#333c57', d: '#566c86', g: '#94b0c2', W: '#f4f4f4',
+    r: '#7a2440', R: '#c83c48', O: '#ef7d57', Y: '#ffcd75', S: '#41a6f6',
+    C: '#73eff7', G: '#38b764', T: '#257179'
+};
+var LW = 160, LH = 90;
+var loader = document.getElementById('loader');
+var lc = document.getElementById('loaderCanvas');
+var lx = lc.getContext('2d');
+
+function fitLoader() {
+    var s = Math.max(1, Math.floor(Math.min(window.innerWidth / LW, window.innerHeight / LH)));
+    lc.style.width = (LW * s) + 'px';
+    lc.style.height = (LH * s) + 'px';
+}
+
+// 5 x 7 pixel font (only the characters the loading screen needs)
+var FONT = {
+    A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+    C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+    D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+    E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+    F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+    G: ['.###.', '#...#', '#....', '#.###', '#...#', '#...#', '.###.'],
+    I: ['###', '.#.', '.#.', '.#.', '.#.', '.#.', '###'],
+    K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+    L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+    N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+    O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+    R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+    T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+    Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+    '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+    '1': ['.#.', '##.', '.#.', '.#.', '.#.', '.#.', '###'],
+    '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+    '3': ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+    '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+    '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+    '6': ['.###.', '#....', '#....', '####.', '#...#', '#...#', '.###.'],
+    '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+    '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+    '9': ['.###.', '#...#', '#...#', '.####', '....#', '....#', '.###.'],
+    '%': ['##..#', '##..#', '...#.', '..#..', '.#...', '#..##', '#..##'],
+    '.': ['.', '.', '.', '.', '.', '.', '#'],
+    '!': ['#', '#', '#', '#', '#', '.', '#']
+};
+
+function textWidth(text, size) {
+    var w = 0;
+    for (var i = 0; i < text.length; i++) {
+        var g = FONT[text[i]];
+        w += (g ? g[0].length : 3) + 1;
+    }
+    return (w - 1) * size;
+}
+
+function drawGlyphs(text, x, y, size, color) {
+    lx.fillStyle = color;
+    for (var i = 0; i < text.length; i++) {
+        var g = FONT[text[i]];
+        if (!g) { x += 4 * size; continue; }          // space
+        for (var r = 0; r < g.length; r++) {
+            for (var c = 0; c < g[r].length; c++) {
+                if (g[r][c] === '#') lx.fillRect(x + c * size, y + r * size, size, size);
+            }
+        }
+        x += (g[0].length + 1) * size;
+    }
+}
+
+// centred text with a 1px outline (and optional drop shadow), like the game's
+function drawText(text, y, size, color, outline, shadow) {
+    var x = Math.floor((LW - textWidth(text, size)) / 2);
+    if (shadow) drawGlyphs(text, x, y + size, size, shadow);
+    if (outline) {
+        for (var dy = -1; dy <= 1; dy++)
+            for (var dx = -1; dx <= 1; dx++)
+                if (dx || dy) drawGlyphs(text, x + dx, y + dy, size, outline);
+    }
+    drawGlyphs(text, x, y, size, color);
+}
+
+// the ball: same shading rules as the game's ball sprite
+function ballPixels(w, h) {
+    var px = [], cx = w / 2, cy = h / 2;
+    function inside(x, y) {
+        if (x < 0 || y < 0 || x >= w || y >= h) return false;
+        var nx = (x + 0.5 - cx) / cx, ny = (y + 0.5 - cy) / cy;
+        return nx * nx + ny * ny <= 1;
+    }
+    for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+            if (!inside(x, y)) continue;
+            var c;
+            if (!(inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1))) c = 'K';
+            else {
+                var nx = (x + 0.5 - cx) / cx, ny = (y + 0.5 - cy) / cy;
+                var light = -(nx * 0.55 + ny * 0.85);
+                c = light > 0.45 ? 'O' : (light < -0.3 ? 'r' : 'R');
+            }
+            px.push([x, y, c]);
+        }
+    }
+    var sx = Math.floor(cx - cx * 0.45), sy = Math.floor(cy - cy * 0.5);
+    px.push([sx, sy, 'W'], [sx + 1, sy, 'W'], [sx, sy + 1, 'W']);
+    return px;
+}
+var BALL_ROUND = ballPixels(14, 14);
+var BALL_SQUASH = ballPixels(16, 12);
+var BALL_STRETCH = ballPixels(12, 16);
+
+function drawBall(px, w, h, cx, bottom) {
+    var x0 = Math.round(cx - w / 2), y0 = Math.round(bottom - h);
+    for (var i = 0; i < px.length; i++) {
+        lx.fillStyle = PAL[px[i][2]];
+        lx.fillRect(x0 + px[i][0], y0 + px[i][1], 1, 1);
+    }
+}
+
+var loadState = 'loading';     // 'loading' | 'ready' | 'error' | 'playing'
+var progress = 0;              // 0..1 (real)
+var shown = 0;                 // 0..1 (eased, what the bar shows)
+var startTime = performance.now();
+var touchUI = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+function drawLoader(now) {
+    var t = (now - startTime) / 1000;
+
+    lx.fillStyle = PAL.K;
+    lx.fillRect(0, 0, LW, LH);
+
+    // title
+    drawText('INFLATE', 6, 2, PAL.Y, PAL.K, PAL.r);
+
+    // ground strip under the ball
+    var ground = 60;
+    lx.fillStyle = PAL.D;
+    lx.fillRect(56, ground, 48, 1);
+
+    // bouncing ball with squash and stretch
+    var phase = (t * 1.6) % 1;
+    var height = 4 * phase * (1 - phase);            // 0 at the ground, 1 at the top
+    var bottom = ground - Math.round(height * 22);
+    if (height < 0.12) drawBall(BALL_SQUASH, 16, 12, 80, ground);
+    else if (height < 0.6) drawBall(BALL_STRETCH, 12, 16, 80, bottom);
+    else drawBall(BALL_ROUND, 14, 14, 80, bottom);
+
+    if (loadState === 'loading') {
+        shown += (progress - shown) * 0.15;
+        // air-bar style progress bar
+        var bx = 30, by = 68, bw = 100, bh = 5;
+        lx.fillStyle = PAL.K; lx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+        lx.fillStyle = PAL.D; lx.fillRect(bx, by, bw, bh);
+        var fw = Math.round(bw * Math.min(1, shown));
+        if (fw > 0) {
+            lx.fillStyle = PAL.C; lx.fillRect(bx, by, fw, bh);
+            lx.fillStyle = PAL.W; lx.fillRect(bx, by, fw, 1);
+        }
+        drawText('LOADING ' + Math.floor(Math.min(1, shown) * 100) + '%', 78, 1, PAL.g);
+    } else if (loadState === 'error') {
+        drawText('LOAD FAILED', 68, 1, PAL.R, PAL.K);
+        drawText('RELOAD PAGE', 79, 1, PAL.g);
+    }
+
+    if (loadState !== 'playing') requestAnimationFrame(drawLoader);
+}
+fitCanvas();
+requestAnimationFrame(drawLoader);
+
+// loading finished: hide the loading screen and show the game straight away
+function startPlaying() {
+    if (loadState === 'playing') return;
+    loadState = 'playing';
+    window.resumeAudio();        // works if the browser already allows sound
+    loader.classList.add('hidden');
+    gameCanvas.focus();
+    setTimeout(fitCanvas, 300);
+}
+// after an error a tap still tries to show the game (the error may be harmless)
+loader.addEventListener('pointerup', function () {
+    if (loadState === 'error' && Module.remainingDependencies === 0) startPlaying();
+});
+
+// browsers only allow fullscreen after a touch on THIS page, so phones go
+// fullscreen on the first touch in the game (Android; iPhone doesn't allow it).
+// Sound also wakes up on that first touch / click / key (see section 1).
+var triedFullscreen = false;
+window.addEventListener('pointerdown', function () {
+    if (!touchUI || triedFullscreen || loadState !== 'playing') return;
+    triedFullscreen = true;
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) {
+        try { var p = req.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    }
+}, true);
+
+// ---------------------------------------------------------------------------
+// 4. LÖVE (love.js) - same settings as the love.js build
+// ---------------------------------------------------------------------------
+var downloadPart = 0;     // 0..1 of the game file download
+var preparePart = 0;      // 0..1 of the engine's preparation steps
+
+function updateProgress() {
+    progress = downloadPart * 0.7 + preparePart * 0.3;
+}
+
+var Module = {
+    arguments: ['./game.love'],
+    INITIAL_MEMORY: 31457280,
+    printErr: console.error.bind(console),
+    canvas: (function () {
+        gameCanvas.addEventListener('webglcontextlost', function (e) {
+            alert('The graphics were reset by the browser. Please reload the page.');
+            e.preventDefault();
+        }, false);
+        return gameCanvas;
+    })(),
+    setStatus: function (text) {
+        if (text) {
+            // e.g. "Downloading data... (12345/70945)"
+            var m = text.match(/\((\d+(?:\.\d+)?)\/(\d+)\)/);
+            if (m && /download/i.test(text)) {
+                downloadPart = Math.min(1, parseFloat(m[1]) / parseFloat(m[2]));
+                updateProgress();
+            }
+        } else if (Module.remainingDependencies === 0 && loadState === 'loading') {
+            downloadPart = 1; preparePart = 1; updateProgress();
+            // let the bar fill up (and the game build its art), then start
+            setTimeout(function () {
+                if (loadState === 'loading') startPlaying();
+            }, 500);
+        }
+    },
+    totalDependencies: 0,
+    remainingDependencies: 0,
+    monitorRunDependencies: function (left) {
+        this.remainingDependencies = left;
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        if (this.totalDependencies > 0) {
+            preparePart = (this.totalDependencies - left) / this.totalDependencies;
+            if (left === 0) downloadPart = 1;
+            updateProgress();
+        }
+        Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : '');
+    }
+};
+Module.setStatus('Downloading...');
+
+window.onerror = function (message) {
+    // the engine uses a harmless 'unwind' exception internally - ignore it
+    if (String(message).indexOf('unwind') !== -1) return;
+    // only shown while loading; once playing, the game keeps running
+    if (loadState === 'loading' || loadState === 'ready') {
+        loadState = 'error';
+        loader.classList.remove('ready');
+    }
+};
+
+var applicationLoad = function () {
+    Love(Module);
+};
+</script>
+<script src="game.js"></script>
+<script async src="love.js" onload="applicationLoad(this)"></script>
+</body>
+</html>
