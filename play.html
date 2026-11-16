@@ -526,6 +526,13 @@ window.onerror = function (message) {
 var applicationLoad = function () {
     Love(Module);
 };
+
+// service worker: keeps a copy of the game on the device (installable app, offline play)
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+}
 </script>
 <script src="game.js"></script>
 <script async src="love.js" onload="applicationLoad(this)"></script>

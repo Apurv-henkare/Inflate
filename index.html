@@ -14,9 +14,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1a1c2c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Inflate">
 <title>Inflate - Demo</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
     html, body {
         margin: 0;
@@ -41,12 +46,14 @@
         image-rendering: pixelated;
         image-rendering: crisp-edges;
     }
-    #playLink {
+    #playLink, #installLink {
         display: block;
         margin-top: 8px;
         outline: none;
         line-height: 0;
     }
+    /* install button + iPhone hint only show up when they make sense */
+    #installLink, #hint { display: none; }
     /* screen readers / no-canvas fallback text */
     .sr {
         position: absolute;
@@ -63,6 +70,11 @@
     <span class="sr">Click here to play</span>
     <canvas id="button" width="124" height="20" aria-hidden="true"></canvas>
 </a>
+<a id="installLink" href="#">
+    <span class="sr">Install the game as an app</span>
+    <canvas id="install" width="124" height="20" aria-hidden="true"></canvas>
+</a>
+<canvas id="hint" width="240" height="18" aria-hidden="true"></canvas>
 
 <script>
 var PAL = {
@@ -113,6 +125,7 @@ var FONT = {
     '.': ['.', '.', '.', '.', '.', '.', '#'],
     '-': ['...', '...', '...', '###', '...', '...', '...'],
     '/': ['....#', '....#', '...#.', '..#..', '.#...', '#....', '#....'],
+    '>': ['#...', '.#..', '..#.', '...#', '..#.', '.#..', '#...'],
     '!': ['#', '#', '#', '#', '#', '.', '#']
 };
 
@@ -192,16 +205,40 @@ var link = document.getElementById('playLink');
 var hover = false;
 var start = performance.now();
 
-// scale both canvases by the same whole number so they fit the screen
+var install = document.getElementById('install');
+var ix = install.getContext('2d');
+var installLink = document.getElementById('installLink');
+var hint = document.getElementById('hint');
+var hx = hint.getContext('2d');
+var installHover = false;
+var installEvent = null;          // the browser's saved install popup (Chrome / Edge / Android)
+
+// already running as an installed app? then no install button or hint
+var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                 (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches) ||
+                 window.navigator.standalone === true;
+var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// scale all canvases by the same whole number so they fit the screen
 function fit() {
     var w = window.innerWidth * 0.95;
     var h = window.innerHeight * 0.9;
-    var s = Math.max(1, Math.floor(Math.min(w / welcome.width, h / (welcome.height + button.height + 6))));
+    var extra = 0;
+    if (installLink.style.display === 'block') extra += install.height + 4;
+    if (hint.style.display === 'block') extra += hint.height + 4;
+    var s = Math.max(1, Math.floor(Math.min(w / welcome.width, h / (welcome.height + button.height + 6 + extra))));
     welcome.style.width = welcome.width * s + 'px';
     welcome.style.height = welcome.height * s + 'px';
     button.style.width = button.width * s + 'px';
     button.style.height = button.height * s + 'px';
     link.style.marginTop = (4 * s) + 'px';
+    install.style.width = install.width * s + 'px';
+    install.style.height = install.height * s + 'px';
+    installLink.style.marginTop = (4 * s) + 'px';
+    hint.style.width = hint.width * s + 'px';
+    hint.style.height = hint.height * s + 'px';
+    hint.style.marginTop = (4 * s) + 'px';
 }
 window.addEventListener('resize', fit);
 fit();
@@ -231,6 +268,67 @@ window.addEventListener('keydown', function (e) {
 });
 drawButton();
 
+// ---- install as an app ------------------------------------------------------
+// same pixel button as PLAY, in cyan
+function drawInstall() {
+    var W = install.width, H = install.height;
+    ix.clearRect(0, 0, W, H);
+    ix.fillStyle = PAL.K;
+    ix.fillRect(1, 0, W - 2, H);
+    ix.fillRect(0, 1, W, H - 2);
+    ix.fillStyle = installHover ? PAL.W : PAL.C;
+    ix.fillRect(1, 1, W - 2, H - 3);
+    ix.fillStyle = installHover ? PAL.C : PAL.g;
+    ix.fillRect(1, H - 3, W - 2, 2);
+    ix.fillStyle = PAL.W;
+    ix.fillRect(2, 1, W - 4, 1);
+    drawText(ix, 'INSTALL APP', 6, 1, PAL.K);
+}
+function showInstall(on) {
+    installLink.style.display = on ? 'block' : 'none';
+    fit();
+}
+installLink.addEventListener('mouseenter', function () { installHover = true; drawInstall(); });
+installLink.addEventListener('mouseleave', function () { installHover = false; drawInstall(); });
+installLink.addEventListener('focus', function () { installHover = true; drawInstall(); });
+installLink.addEventListener('blur', function () { installHover = false; drawInstall(); });
+installLink.addEventListener('click', function (e) {
+    e.preventDefault();
+    if (!installEvent) return;
+    installEvent.prompt();
+    installEvent.userChoice.then(function (choice) {
+        if (choice && choice.outcome === 'accepted') showInstall(false);
+    });
+    installEvent = null;          // a saved popup can only be used once
+});
+drawInstall();
+
+// Chrome / Edge / Samsung Internet say "this can be installed" with this event
+window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    installEvent = e;
+    if (!standalone) showInstall(true);
+});
+window.addEventListener('appinstalled', function () {
+    installEvent = null;
+    showInstall(false);
+});
+
+// iPhone / iPad never send that event: show how to do it by hand
+if (isIOS && !standalone) {
+    drawText(hx, 'TO INSTALL ON IPHONE:', 1, 1, PAL.C);
+    drawText(hx, 'SHARE > ADD TO HOME SCREEN', 10, 1, PAL.g);
+    hint.style.display = 'block';
+    fit();
+}
+
+// the service worker makes the game installable and playable offline
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+}
+
 function frame(now) {
     var t = (now - start) / 1000;
     var W = welcome.width;
@@ -251,7 +349,7 @@ function frame(now) {
     else if (height < 0.6) drawBall(wx, BALL.stretch, 12, 16, 120, bottom);
     else drawBall(wx, BALL.round, 14, 14, 120, bottom);
 
-    drawText(wx, 'DEMO VERSION - 8 LEVELS', 83, 1, PAL.W);
+    drawText(wx, 'DEMO VERSION - 13 LEVELS', 83, 1, PAL.W);
     drawText(wx, 'PC: ARROWS ROLL, SPACE JUMP, Q/E SIZE', 97, 1, PAL.g);
     drawText(wx, 'PHONE: TOUCH BUTTONS ON SCREEN', 108, 1, PAL.g);
 
