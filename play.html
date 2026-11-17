@@ -176,6 +176,7 @@ var FONT = {
     H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
     I: ['###', '.#.', '.#.', '.#.', '.#.', '.#.', '###'],
     U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+    V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
     K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
     L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
     N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
@@ -279,6 +280,7 @@ function drawBall(px, w, h, cx, bottom) {
     }
 }
 
+var PAGE_VERSION = 'V3';       // shown in the loading screen's corner; change with sw.js VERSION
 var loadState = 'loading';     // 'loading' | 'ready' | 'error' | 'playing'
 var progress = 0;              // 0..1 (real)
 var shown = 0;                 // 0..1 (eased, what the bar shows)
@@ -323,6 +325,9 @@ function drawLoader(now) {
         drawText('LOAD FAILED', 68, 1, PAL.R, PAL.K);
         drawText('RELOAD PAGE', 79, 1, PAL.g);
     }
+
+    // version of these web files (so testers can see an update arrived)
+    drawGlyphs(PAGE_VERSION, 2, LH - 9, 1, PAL.d);
 
     if (loadState !== 'playing') requestAnimationFrame(drawLoader);
 }
@@ -471,15 +476,72 @@ function updateProgress() {
     progress = downloadPart * 0.7 + preparePart * 0.3;
 }
 
+// ---------------------------------------------------------------------------
+// PROGRESS KEPT BY THE PAGE (see src/SaveData.lua)
+// The game prints '@@SAVE@@<progress>' every time it saves; we merge that with
+// what we already have and store it in localStorage at once. At start we pass
+// our progress to the game as 'websave=<progress>'. Merging keeps the best of
+// both (highest unlock, most gems, fastest time), so an older copy (another
+// tab, the installed app) can never wipe newer progress.
+// <progress> = "u14|1:9:35.20|2:19:61.05"   (u = unlocked, level:gems:time)
+// ---------------------------------------------------------------------------
+var PROGRESS_KEY = 'inflate-progress';
+
+function parseProgress(text) {
+    var p = { u: 1, levels: {} };
+    String(text || '').split('|').forEach(function (part) {
+        var m = /^u(\d+)$/.exec(part);
+        if (m) { p.u = Math.max(p.u, +m[1]); return; }
+        m = /^(\d+):(\d+):([\d.]+)$/.exec(part);
+        if (m) mergeLevel(p, +m[1], +m[2], +m[3]);
+    });
+    return p;
+}
+function mergeLevel(p, n, gems, time) {
+    var r = p.levels[n];
+    if (!r) p.levels[n] = { g: gems, t: time };
+    else {
+        if (gems > r.g) r.g = gems;
+        if (time < r.t) r.t = time;
+    }
+}
+function encodeProgress(p) {
+    var parts = ['u' + p.u];
+    Object.keys(p.levels).map(Number).sort(function (a, b) { return a - b; })
+        .forEach(function (n) {
+            var r = p.levels[n];
+            parts.push(n + ':' + r.g + ':' + r.t.toFixed(2));
+        });
+    return parts.join('|');
+}
+function readProgress() {
+    try { return localStorage.getItem(PROGRESS_KEY) || ''; } catch (e) { return ''; }
+}
+function rememberProgress(text) {
+    var stored = parseProgress(readProgress());
+    var fresh = parseProgress(text);
+    stored.u = Math.max(stored.u, fresh.u);
+    Object.keys(fresh.levels).forEach(function (n) {
+        mergeLevel(stored, +n, fresh.levels[n].g, fresh.levels[n].t);
+    });
+    try { localStorage.setItem(PROGRESS_KEY, encodeProgress(stored)); } catch (e) {}
+}
+
 var Module = {
     arguments: ['./game.love'],
     INITIAL_MEMORY: 31457280,
     printErr: console.error.bind(console),
-    // text the game prints. '@@SAVE@@' = the game just saved (see storeSave)
+    // text the game prints. '@@SAVE@@<progress>' = the game just saved
     print: function (text) {
-        // (a moment later, so the game's own code has finished first)
-        if (text === '@@SAVE@@') setTimeout(storeSave, 0);
-        else console.log(text);
+        text = String(text);
+        if (text.indexOf('@@SAVE@@') === 0) {
+            rememberProgress(text.slice(8));
+            // also copy love.js's own save file to storage (a moment later,
+            // so the game's own code has finished first)
+            setTimeout(storeSave, 0);
+        } else {
+            console.log(text);
+        }
     },
     canvas: (function () {
         gameCanvas.addEventListener('webglcontextlost', function (e) {
@@ -518,6 +580,11 @@ var Module = {
     }
 };
 Module.setStatus('Downloading...');
+// hand our kept progress to the game at start (merged in SaveData.load)
+(function () {
+    var kept = readProgress();
+    if (kept) Module.arguments.push('websave=' + kept);
+})();
 
 window.onerror = function (message) {
     // the engine uses a harmless 'unwind' exception internally - ignore it

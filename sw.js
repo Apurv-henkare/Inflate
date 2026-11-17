@@ -11,7 +11,7 @@
     always get the newest files (and the saved copy is refreshed); when
     offline, the saved copy is used.
 */
-var VERSION = 'inflate-v2';
+var VERSION = 'inflate-v3';
 var FILES = [
     './',
     'index.html',
