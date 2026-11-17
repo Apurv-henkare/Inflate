@@ -475,6 +475,12 @@ var Module = {
     arguments: ['./game.love'],
     INITIAL_MEMORY: 31457280,
     printErr: console.error.bind(console),
+    // text the game prints. '@@SAVE@@' = the game just saved (see storeSave)
+    print: function (text) {
+        // (a moment later, so the game's own code has finished first)
+        if (text === '@@SAVE@@') setTimeout(storeSave, 0);
+        else console.log(text);
+    },
     canvas: (function () {
         gameCanvas.addEventListener('webglcontextlost', function (e) {
             alert('The graphics were reset by the browser. Please reload the page.');
@@ -526,6 +532,23 @@ window.onerror = function (message) {
 var applicationLoad = function () {
     Love(Module);
 };
+
+// saving on phones:
+// love.js keeps the game's save in memory and only copies it into the
+// browser's storage on 'beforeunload' (page closed normally). An installed
+// app that is swiped away never gets that, so saves were lost. Its copy step
+// listens for that event, so we fire it ourselves:
+//   - right after the game saves (it prints '@@SAVE@@', see src/SaveData.lua)
+//   - once when the app goes to the background (backup)
+// Only after the game has fully loaded: before that the old save hasn't been
+// read back yet, and copying the empty folder over it would erase it.
+function storeSave() {
+    if (loadState !== 'playing' || Module.remainingDependencies !== 0) return;
+    try { window.dispatchEvent(new Event('beforeunload')); } catch (e) {}
+}
+document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') storeSave();
+});
 
 // service worker: keeps a copy of the game on the device (installable app, offline play)
 if ('serviceWorker' in navigator) {
