@@ -527,26 +527,6 @@ var applicationLoad = function () {
     Love(Module);
 };
 
-// saving progress on phones:
-// love.js keeps the save folder in memory and only copies it into the
-// browser's storage (IndexedDB) on 'beforeunload'. An installed app that is
-// swiped away or killed in the background never gets that event, so the last
-// save (e.g. finishing a level) was lost. Its copy step listens for that event,
-// so we fire it ourselves: every few seconds, and whenever the game is hidden.
-// (Only changed files are written, so this is cheap.)
-// IMPORTANT: only once the game is running. Before that, the old save has not
-// been read back from storage yet, and copying the still-empty folder over it
-// would erase it.
-function flushSave() {
-    if (loadState !== 'playing' || Module.remainingDependencies !== 0) return;
-    try { window.dispatchEvent(new Event('beforeunload')); } catch (e) {}
-}
-setInterval(flushSave, 4000);
-document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') flushSave();
-});
-window.addEventListener('pagehide', flushSave);
-
 // service worker: keeps a copy of the game on the device (installable app, offline play)
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
