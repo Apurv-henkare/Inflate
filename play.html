@@ -280,7 +280,7 @@ function drawBall(px, w, h, cx, bottom) {
     }
 }
 
-var PAGE_VERSION = 'V3';       // shown in the loading screen's corner; change with sw.js VERSION
+var PAGE_VERSION = 'V4';       // shown in the loading screen's corner; change with sw.js VERSION
 var loadState = 'loading';     // 'loading' | 'ready' | 'error' | 'playing'
 var progress = 0;              // 0..1 (real)
 var shown = 0;                 // 0..1 (eased, what the bar shows)
@@ -536,9 +536,6 @@ var Module = {
         text = String(text);
         if (text.indexOf('@@SAVE@@') === 0) {
             rememberProgress(text.slice(8));
-            // also copy love.js's own save file to storage (a moment later,
-            // so the game's own code has finished first)
-            setTimeout(storeSave, 0);
         } else {
             console.log(text);
         }
@@ -600,22 +597,9 @@ var applicationLoad = function () {
     Love(Module);
 };
 
-// saving on phones:
-// love.js keeps the game's save in memory and only copies it into the
-// browser's storage on 'beforeunload' (page closed normally). An installed
-// app that is swiped away never gets that, so saves were lost. Its copy step
-// listens for that event, so we fire it ourselves:
-//   - right after the game saves (it prints '@@SAVE@@', see src/SaveData.lua)
-//   - once when the app goes to the background (backup)
-// Only after the game has fully loaded: before that the old save hasn't been
-// read back yet, and copying the empty folder over it would erase it.
-function storeSave() {
-    if (loadState !== 'playing' || Module.remainingDependencies !== 0) return;
-    try { window.dispatchEvent(new Event('beforeunload')); } catch (e) {}
-}
-document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') storeSave();
-});
+// saving on phones: the game prints '@@SAVE@@<progress>' every time it saves
+// and print() above keeps it in localStorage (never fire 'beforeunload'
+// ourselves - that froze the game at LEVEL COMPLETE).
 
 // service worker: keeps a copy of the game on the device (installable app, offline play)
 if ('serviceWorker' in navigator) {
