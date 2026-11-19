@@ -280,7 +280,7 @@ function drawBall(px, w, h, cx, bottom) {
     }
 }
 
-var PAGE_VERSION = 'V4';       // shown in the loading screen's corner; change with sw.js VERSION
+var PAGE_VERSION = 'V5';       // shown in the loading screen's corner; change with sw.js VERSION
 var loadState = 'loading';     // 'loading' | 'ready' | 'error' | 'playing'
 var progress = 0;              // 0..1 (real)
 var shown = 0;                 // 0..1 (eased, what the bar shows)
@@ -483,19 +483,28 @@ function updateProgress() {
 // our progress to the game as 'websave=<progress>'. Merging keeps the best of
 // both (highest unlock, most gems, fastest time), so an older copy (another
 // tab, the installed app) can never wipe newer progress.
-// <progress> = "u14|1:9:35.20|2:19:61.05"   (u = unlocked, level:gems:time)
+// <progress> = "u14|1:9:35.20|2:19:61.05|b:rubber.stone|s3:stone"
+//   u = unlocked, level:gems:time, b: = shop balls owned (joined when merging),
+//   s<counter>: = ball in use (the higher counter = the newer choice wins)
 // ---------------------------------------------------------------------------
 var PROGRESS_KEY = 'inflate-progress';
 
 function parseProgress(text) {
-    var p = { u: 1, levels: {} };
+    var p = { u: 1, levels: {}, balls: {}, s: 0, ball: '' };
     String(text || '').split('|').forEach(function (part) {
         var m = /^u(\d+)$/.exec(part);
         if (m) { p.u = Math.max(p.u, +m[1]); return; }
+        m = /^b:([\w.]*)$/.exec(part);
+        if (m) { m[1].split('.').forEach(function (id) { if (id) p.balls[id] = true; }); return; }
+        m = /^s(\d+):(\w+)$/.exec(part);
+        if (m) { mergeChoice(p, +m[1], m[2]); return; }
         m = /^(\d+):(\d+):([\d.]+)$/.exec(part);
         if (m) mergeLevel(p, +m[1], +m[2], +m[3]);
     });
     return p;
+}
+function mergeChoice(p, stamp, id) {
+    if (stamp > p.s) { p.s = stamp; p.ball = id; }
 }
 function mergeLevel(p, n, gems, time) {
     var r = p.levels[n];
@@ -512,6 +521,9 @@ function encodeProgress(p) {
             var r = p.levels[n];
             parts.push(n + ':' + r.g + ':' + r.t.toFixed(2));
         });
+    var owned = Object.keys(p.balls).sort();
+    if (owned.length) parts.push('b:' + owned.join('.'));
+    if (p.s > 0) parts.push('s' + p.s + ':' + p.ball);
     return parts.join('|');
 }
 function readProgress() {
@@ -524,6 +536,8 @@ function rememberProgress(text) {
     Object.keys(fresh.levels).forEach(function (n) {
         mergeLevel(stored, +n, fresh.levels[n].g, fresh.levels[n].t);
     });
+    Object.keys(fresh.balls).forEach(function (id) { stored.balls[id] = true; });
+    mergeChoice(stored, fresh.s, fresh.ball);
     try { localStorage.setItem(PROGRESS_KEY, encodeProgress(stored)); } catch (e) {}
 }
 
